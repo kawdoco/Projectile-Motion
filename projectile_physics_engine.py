@@ -32,7 +32,7 @@ class ProjectilePhysics:
             speed = math.hypot(vx, vy)
 
             # Quadratic drag: F_drag = -k * v * |v|, split into components.
-            if self.drag_coefficient > 0 and speed > 0:
+            if self.dragCoefficient > 0 and speed > 0:
                 ax = -(self.dragCoefficient / self.mass) * speed * vx
                 ay = -self.gravity - (self.dragCoefficient / self.mass) * speed * vy
             else:
@@ -108,7 +108,7 @@ class ProjectilePhysics:
 
 if __name__ == "__main__":
     # Quick manual check when running this file directly
-    p = ProjectilePhysics(v0=30, angle_deg=45, height=0, drag_coefficient=0.02)
+    p = ProjectilePhysics(launchSpeed=30, launchAngle=45, startHeight=0, dragCoefficient=0.02)
     for k, v in p.results().items():
         print(f"{k}: {v}")      
         
