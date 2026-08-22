@@ -13,8 +13,8 @@ class ProjectilePhysics:
         self.dt = dt #integration timesteps(s)
         self.angleRadius = math.radians(launchAngle)
 
-        self.horizontalVelocity = launchAngle * math.cos(self.angleRadius) #vx0
-        self.verticalVelocity = launchAngle * math.sin(self.angleRadius)  #vy0
+        self.horizontalVelocity = launchSpeed * math.cos(self.angleRadius) #vx0
+        self.verticalVelocity = launchSpeed * math.sin(self.angleRadius)  #vy0
 
         self._trajectory = None
         self._simulate()
