@@ -3,7 +3,7 @@ visualizer part
 """
 
 import numpy as np
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plts
 import matplotlib.animation as animation
 from matplotlib.gridspec import GridSpec
 
