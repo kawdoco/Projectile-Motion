@@ -3,7 +3,7 @@ visualizer part
 """
 
 import numpy as np
-import matplotlib.pyplot as plts
+import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.gridspec import GridSpec
 
@@ -22,6 +22,15 @@ class TrajectoryVisualizer:
     def __init__(self, projectile):
         self.projectile = projectile
         data = np.array(projectile.full_trajectory())
+        
+        # Validate trajectory data
+        if data.size == 0:
+            raise ValueError("Trajectory data is empty")
+        if data.shape[1] < 5:
+            raise ValueError("Trajectory data must have at least 5 columns (t, x, y, vx, vy)")
+        if np.any(np.isnan(data)) or np.any(np.isinf(data)):
+            raise ValueError("Trajectory data contains NaN or infinite values")
+        
         self.t = data[:, 0]
         self.x = data[:, 1]
         self.y = data[:, 2]
@@ -85,7 +94,13 @@ class TrajectoryVisualizer:
         fig.text(0.02, 0.02, self._stats_text(), color=TEXT_COLOR, fontsize=9)
 
         if save_path:
-            fig.savefig(save_path, facecolor=fig.get_facecolor())
+            try:
+                fig.savefig(save_path, facecolor=fig.get_facecolor())
+                print(f"Saved static visualization to {save_path}")
+            except Exception as e:
+                print(f"Error saving static visualization: {e}")
+        else:
+            plt.show()
         return fig
 
     def render_animation(self, save_path=None, interval=20, frame_step=5):
@@ -107,10 +122,12 @@ class TrajectoryVisualizer:
         height_line, = ax_height.plot([], [], color=ACCENT, linewidth=2)
 
         def update(frame):
-            trail.set_offsets(np.column_stack([xs[:frame + 1], ys[:frame + 1]]))
-            trail.set_array(speeds[:frame + 1])
-            marker.set_data([xs[frame]], [ys[frame]])
-            height_line.set_data(ts[:frame + 1], ys[:frame + 1])
+            # Ensure frame index is within bounds
+            frame_idx = min(frame, len(xs) - 1)
+            trail.set_offsets(np.column_stack([xs[:frame_idx + 1], ys[:frame_idx + 1]]))
+            trail.set_array(speeds[:frame_idx + 1])
+            marker.set_data([xs[frame_idx]], [ys[frame_idx]])
+            height_line.set_data(ts[:frame_idx + 1], ys[:frame_idx + 1])
             return trail, marker, height_line
 
         anim = animation.FuncAnimation(
@@ -118,15 +135,34 @@ class TrajectoryVisualizer:
         )
 
         if save_path:
-            anim.save(save_path, writer="pillow")
+            try:
+                anim.save(save_path, writer="pillow")
+                print(f"Saved animation to {save_path}")
+            except Exception as e:
+                print(f"Error saving animation: {e}")
+        else:
+            plt.show()
         return anim
 
 
 if __name__ == "__main__":
     # quick manual smoke test using the physics module directly
-    from projectile import ProjectilePhysics
+    try:
+        from projectile_physics_engine import ProjectilePhysics
 
-    p = ProjectilePhysics(launchSpeed=35, launchAngle=50, dragCoefficient=0.015)
-    viz = TrajectoryVisualizer(p)
-    viz.render_static(save_path="static_preview.png")
-    print("Saved static_preview.png")
+        p = ProjectilePhysics(launchSpeed=35, launchAngle=50, dragCoefficient=0.015)
+        viz = TrajectoryVisualizer(p)
+        
+        # Test static visualization
+        print("Generating static visualization...")
+        viz.render_static(save_path="static_preview.png")
+        
+        # Test animated visualization
+        print("Generating animated visualization...")
+        viz.render_animation(save_path="animation_preview.gif", interval=20, frame_step=5)
+        print("Animation saved to animation_preview.gif")
+        
+    except Exception as e:
+        print(f"Error during visualization test: {e}")
+        import traceback
+        traceback.print_exc()
