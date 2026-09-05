@@ -30,7 +30,7 @@ def _fmt(value):
 # Hand-rolled widgets (Pygame has none built in)
 # ----------------------------------------------------------------------
 class Widget(ABC):
-
+    
     def __init__(self, rect):
         self.rect = pygame.Rect(rect)
 
@@ -176,7 +176,7 @@ class ParamRow:
 
 
 class Sidebar:
-    
+   
     FIELDS = [
         ("v0", "Initial Speed (m/s)", 30, 0, 100, 1, True),
         ("angle_deg", "Launch Angle (deg)", 45, 0, 90, 1, True),
@@ -251,14 +251,14 @@ class Sidebar:
 
 
 class PlotPanel:
-    
+   
 
     MARGIN_L, MARGIN_R, MARGIN_T, MARGIN_B = 55, 20, 40, 40
 
     def __init__(self, rect):
         self.rect = pygame.Rect(rect)
         self.surface = pygame.Surface(self.rect.size)
-        self.xs = self.ys = None
+        self.ts = self.xs = self.ys = None
         self.results = None
         self.frame = 0
         self._frame_timer = 0
@@ -266,8 +266,8 @@ class PlotPanel:
         self._glow_cache = None
 
     # ---------- animation lifecycle ----------
-    def start_animation(self, xs, ys, results):
-        self.xs, self.ys = xs, ys
+    def start_animation(self, ts, xs, ys, results):
+        self.ts, self.xs, self.ys = ts, xs, ys
         self.results = results
         self.frame = 0
         self._frame_timer = 0
@@ -283,6 +283,16 @@ class PlotPanel:
             self._frame_timer -= FRAME_INTERVAL_MS
         if self.frame >= len(self.xs) - 1:
             self.finished = True
+
+    def live_stats(self):
+       
+        if self.xs is None:
+            return None
+        return {
+            "flight_time": round(self.ts[self.frame], 3),
+            "max_height": round(max(self.ys[:self.frame + 1]), 3),
+            "range": round(self.results["range"], 3) if self.finished else None,
+        }
 
     # ---------- coordinate transform ----------
     def _plot_rect(self):
@@ -387,10 +397,12 @@ class SummaryBar:
 
     def __init__(self, rect):
         self.rect = pygame.Rect(rect)
-        self.results = None
+        self.live = None
 
-    def set_results(self, results):
-        self.results = results
+    def set_live(self, live):
+        """`live` is the dict from PlotPanel.live_stats() - refreshed
+        every frame so the numbers move in sync with the flight path."""
+        self.live = live
 
     def draw(self, surface, fonts):
         pygame.draw.rect(surface, PANEL_BG, self.rect, border_radius=10)
@@ -398,7 +410,8 @@ class SummaryBar:
 
         cell_w = self.rect.width // 3
         for i, (key, label, unit) in enumerate(self.SPECS):
-            value = f"{self.results[key]}{unit}" if self.results else "\u2013"
+            raw = self.live.get(key) if self.live else None
+            value = f"{raw}{unit}" if raw is not None else "\u2013"
             text = f"{label}: {value}"
             rendered = fonts["bold"].render(text, True, FG)
             cx = self.rect.x + cell_w * i + cell_w // 2
@@ -445,12 +458,13 @@ class ProjectileGUI:
             return
         self.projectile = ProjectilePhysics(**inputs)
         traj = self.projectile.full_trajectory()[::5]
+        ts = [p[0] for p in traj]
         xs = [p[1] for p in traj]
         ys = [p[2] for p in traj]
         results = self.projectile.results()
 
-        self.plot_panel.start_animation(xs, ys, results)
-        self.summary_bar.set_results(results)
+        self.plot_panel.start_animation(ts, xs, ys, results)
+        self.summary_bar.set_live(self.plot_panel.live_stats())
         self.sidebar.set_status("Simulation running...")
 
     def save_image(self):
@@ -461,7 +475,7 @@ class ProjectileGUI:
         self.sidebar.set_status("Saved current view as trajectory.png")
 
     def save_gif(self):
-       
+        
         if self.projectile is None:
             self.sidebar.set_status("Click Simulate first.")
             return
@@ -472,12 +486,13 @@ class ProjectileGUI:
             return
 
         traj = self.projectile.full_trajectory()[::5]
+        ts = [p[0] for p in traj]
         xs = [p[1] for p in traj]
         ys = [p[2] for p in traj]
         results = self.projectile.results()
 
         capture_panel = PlotPanel(self.plot_panel.rect)
-        capture_panel.start_animation(xs, ys, results)
+        capture_panel.start_animation(ts, xs, ys, results)
 
         frames = []
         for _ in range(len(xs)):
@@ -509,7 +524,12 @@ class ProjectileGUI:
                     self.running = False
                 self.sidebar.handle_event(event)
 
+            was_finished = self.plot_panel.finished
             self.plot_panel.update(dt)
+            if self.plot_panel.xs is not None:
+                self.summary_bar.set_live(self.plot_panel.live_stats())
+                if self.plot_panel.finished and not was_finished:
+                    self.sidebar.set_status("Simulation complete.")
 
             self.screen.fill(BG)
             self.sidebar.draw(self.screen, self.fonts)
