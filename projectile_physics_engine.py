@@ -1,26 +1,70 @@
-#physics functions that need for the projectile motion
 import math
+from abc import ABC, abstractmethod
+
+
+class DragModel(ABC):
+    """Something that can compute the acceleration acting on a
+    projectile, given its current velocity components."""
+
+    @abstractmethod
+    def acceleration(self, vx, vy, gravity):
+        """Return (ax, ay) for the given velocity and gravity."""
+        raise NotImplementedError
+
+
+class NoDrag(DragModel):
+    """Gravity only - the classic textbook case."""
+
+    def acceleration(self, vx, vy, gravity):
+        return 0.0, -gravity
+
+
+class QuadraticDrag(DragModel):
+    """Gravity plus quadratic (speed-squared) air resistance:
+    F_drag = -k * v * |v|, split into its x and y components."""
+
+    def __init__(self, drag_coefficient, mass):
+        self._k = drag_coefficient
+        self._mass = mass
+
+    def acceleration(self, vx, vy, gravity):
+        speed = math.hypot(vx, vy)
+        if speed == 0:
+            return 0.0, -gravity
+        factor = (self._k / self._mass) * speed
+        return -factor * vx, -gravity - factor * vy
+
 
 class ProjectilePhysics:
-    def __init__(self, launchSpeed, launchAngle, startHeight = 0.0, gravity = 9.81, dragCoefficient= 0.0, mass = 1.0, dt = 0.001):
+    """Simulates a projectile's flight using semi-implicit Euler
+    integration, optionally with quadratic air resistance."""
 
-        self.launchSpeed = launchSpeed # speed of the launched object in m/s
-        self.launchAngle = launchAngle  #The launching angle of the object
-        self.startHeight = startHeight  # The starting height above the ground in meters
-        self.gravity = gravity #Gravitational acceleration in m/s^2
-        self.dragCoefficient = dragCoefficient  #How strongly air resistance is slow down the object
-        self.mass = mass  #Mass of the projectile in kg
-        self.dt = dt #integration timesteps(s)
-        self.angleRadius = math.radians(launchAngle)
+    def __init__(self, launchSpeed, launchAngle, startHeight=0.0,
+                 gravity=9.81, dragCoefficient=0.0, mass=1.0, dt=0.001):
+        self.launchSpeed = launchSpeed          # m/s
+        self.launchAngle = launchAngle          # degrees
+        self.startHeight = startHeight          # m above the ground
+        self.gravity = gravity                  # m/s^2
+        self.dragCoefficient = dragCoefficient  # how strongly air slows the object
+        self.mass = mass                        # kg
+        self.dt = dt                            # integration timestep (s)
 
-        self.horizontalVelocity = launchSpeed * math.cos(self.angleRadius) #vx0
-        self.verticalVelocity = launchSpeed * math.sin(self.angleRadius)  #vy0
+        angle_rad = math.radians(launchAngle)
+        self.horizontalVelocity = launchSpeed * math.cos(angle_rad)  # vx0
+        self.verticalVelocity = launchSpeed * math.sin(angle_rad)    # vy0
 
-        self._trajectory = None
+        # Pick a drag model up front; ProjectilePhysics itself never
+        # needs to know which one it is holding (polymorphism).
+        self._drag_model = (
+            QuadraticDrag(dragCoefficient, mass) if dragCoefficient > 0 else NoDrag()
+        )
+
+        self.__trajectory = []  # private: (t, x, y, vx, vy) samples
         self._simulate()
 
-
-    #Calculate the flight path of the projectile
+    # ------------------------------------------------------------------
+    # Simulation
+    # ------------------------------------------------------------------
     def _simulate(self):
         t = 0.0
         x, y = 0.0, self.startHeight
@@ -29,15 +73,7 @@ class ProjectilePhysics:
         trajectory = [(t, x, y, vx, vy)]
 
         while y >= 0:
-            speed = math.hypot(vx, vy)
-
-            # Quadratic drag: F_drag = -k * v * |v|, split into components.
-            if self.dragCoefficient > 0 and speed > 0:
-                ax = -(self.dragCoefficient / self.mass) * speed * vx
-                ay = -self.gravity - (self.dragCoefficient / self.mass) * speed * vy
-            else:
-                ax = 0.0
-                ay = -self.gravity
+            ax, ay = self._drag_model.acceleration(vx, vy, self.gravity)
 
             # Semi-implicit (symplectic) Euler: update velocity first,
             # then use the new velocity to update position. More stable
@@ -50,52 +86,49 @@ class ProjectilePhysics:
 
             trajectory.append((t, x, y, vx, vy))
 
-            if t > 1000:  # safety cutoff against infinite loops
+            if t > 1000:  # safety cutoff against runaway loops
                 break
 
-        self._trajectory = trajectory
+        self.__trajectory = trajectory
 
-    #This method is used to find where the object was at a that time
-    def position_lookup(self, t): 
-
-        for i in range(len(self._trajectory) - 1):
-            t0 = self._trajectory[i][0]
-            t1 = self._trajectory[i + 1][0]
-
+    def _sample_at(self, t, index):
+        """Shared lookup helper for position_lookup() and velocity_at()."""
+        for i in range(len(self.__trajectory) - 1):
+            t0 = self.__trajectory[i][0]
+            t1 = self.__trajectory[i + 1][0]
             if t0 <= t <= t1:
-                return self._trajectory[i][1], self._trajectory[i][2]
-        last = self._trajectory[-1]
-        return last[1], last[2]
+                return self.__trajectory[i][index]
+        return self.__trajectory[-1][index]
 
-    #This method is used to find how much fast the object was forwarding at the given moment
+    # ------------------------------------------------------------------
+    # Public queries
+    # ------------------------------------------------------------------
+    def position_lookup(self, t):
+        """Find where the object was at a given time."""
+        return self._sample_at(t, 1), self._sample_at(t, 2)
+
     def velocity_at(self, t):
-        for i in range(len(self._trajectory) - 1):
-            t0 = self._trajectory[i][0]
-            t1 = self._trajectory[i + 1][0]
-            if t0 <= t <= t1:
-                return self._trajectory[i][3], self._trajectory[i][4]
-        last = self._trajectory[-1]
-        return last[3], last[4]
+        """Find how fast the object was moving at a given time."""
+        return self._sample_at(t, 3), self._sample_at(t, 4)
 
-    #To find maximum height reached by the object
     def max_height(self):
-        return max(point[2] for point in self._trajectory)
+        """Maximum height reached by the object."""
+        return max(point[2] for point in self.__trajectory)
 
-    #To find how far the object go from it started point to end point
     def range(self):
-        return self._trajectory[-1][1]
+        """How far the object travelled from launch to landing."""
+        return self.__trajectory[-1][1]
 
-    #Total time it takes from start to end point
     def flight_time(self):
-        return self._trajectory[-1][0]
+        """Total time from launch to landing."""
+        return self.__trajectory[-1][0]
 
-    #Show the entire recorded flight path
     def full_trajectory(self):
         """Returns the full list of (t, x, y, vx, vy) samples."""
-        return self._trajectory
+        return self.__trajectory
 
-    #Key results
     def results(self):
+        """Key results, ready to display or plot."""
         return {
             "initial_speed": self.launchSpeed,
             "launch_angle_deg": self.launchAngle,
@@ -110,7 +143,4 @@ if __name__ == "__main__":
     # Quick manual check when running this file directly
     p = ProjectilePhysics(launchSpeed=30, launchAngle=45, startHeight=0, dragCoefficient=0.02)
     for k, v in p.results().items():
-        print(f"{k}: {v}")      
-        
-
-
+        print(f"{k}: {v}")
