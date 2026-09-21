@@ -1,9 +1,10 @@
-"""
-visualizer part
-"""
+#visualizer part(my part)
+
+
+from abc import ABC, abstractmethod
 
 import numpy as np
-import matplotlib.pyplot as plts
+import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.gridspec import GridSpec
 
@@ -16,20 +17,79 @@ ACCENT = "#ff8c42"
 CMAP_NAME = "plasma"        
 
 
-class TrajectoryVisualizer:
-    """Builds static and animated views of a projectile's flight."""
+class BaseVisualizer(ABC):
+#This is the abstract base class for visualizer. 
+
+    @abstractmethod
+    def render_static(self, save_path=None, points=400):
+        #This method is used to create a static picture.
+        raise NotImplementedError
+
+    @abstractmethod
+    def render_animation(self, save_path=None, interval=20, frame_step=5):
+        #This method is used to create an animation.
+        raise NotImplementedError
+
+
+class TrajectoryVisualizer(BaseVisualizer):
+    #This class creates static and animated projectile graphs.
+
 
     def __init__(self, projectile):
+        # Store the projectile object.
         self.projectile = projectile
+        # Get all the projectile data and convert it to a numpy array.
         data = np.array(projectile.full_trajectory())
-        self.t = data[:, 0]
-        self.x = data[:, 1]
-        self.y = data[:, 2]
-        self.vx = data[:, 3]
-        self.vy = data[:, 4]
-        self.speed = np.hypot(self.vx, self.vy)
 
-    # ---------- shared setup helpers ----------
+
+        # Store the time values.
+        # Double underscore is used to make these attributes private.
+        self.__t = data[:, 0]
+
+        # Store the horizontal position values.
+        self.__x = data[:, 1]
+
+        # Store the vertical position values.
+        self.__y = data[:, 2]
+
+        # Store the horizontal velocity values.
+        self.__vx = data[:, 3]
+
+        # Store the vertical velocity values.
+        self.__vy = data[:, 4]
+
+        # Calculate the speed using horizontal and vertical velocity.
+        self.__speed = np.hypot(self.__vx, self.__vy)
+
+
+   # These properties give read-only access to the private data.
+
+    @property
+    def t(self):
+        return self.__t
+
+    @property
+    def x(self):
+        return self.__x
+
+    @property
+    def y(self):
+        return self.__y
+
+    @property
+    def vx(self):
+        return self.__vx
+
+    @property
+    def vy(self):
+        return self.__vy
+
+    @property
+    def speed(self):
+        return self.__speed
+
+    # These methods are used for common graph setup.
+
 
     def _new_figure(self, with_height_panel=True):
         fig = plt.figure(figsize=(11, 5.5))
@@ -63,11 +123,11 @@ class TrajectoryVisualizer:
                 f"range = {r['range']} m   max height = {r['max_height']} m   "
                 f"flight time = {r['flight_time']} s")
 
-    # ---------- public API ----------
+    #           public API 
 
     def render_static(self, save_path=None, points=400):
-        """Draws the full flight path once, colored by instantaneous speed,
-        plus a matching height-vs-time curve."""
+        # Draw the complete projectile path as a static graph. 
+
         idx = np.linspace(0, len(self.x) - 1, min(points, len(self.x))).astype(int)
         xs, ys, ts, speeds = self.x[idx], self.y[idx], self.t[idx], self.speed[idx]
 
@@ -89,8 +149,9 @@ class TrajectoryVisualizer:
         return fig
 
     def render_animation(self, save_path=None, interval=20, frame_step=5):
-        """Animates the flight: a gradient trail grows behind a moving marker,
-        while the height-vs-time panel fills in alongside it."""
+        # Create an animation of the projectile movement.
+
+        # Create an animation of the projectile movement.
         idx = np.arange(0, len(self.x), frame_step)
         xs, ys, ts, speeds = self.x[idx], self.y[idx], self.t[idx], self.speed[idx]
 
@@ -124,7 +185,7 @@ class TrajectoryVisualizer:
 
 if __name__ == "__main__":
     # quick manual smoke test using the physics module directly
-    from projectile import ProjectilePhysics
+    from projectile_physics_engine import ProjectilePhysics
 
     p = ProjectilePhysics(launchSpeed=35, launchAngle=50, dragCoefficient=0.015)
     viz = TrajectoryVisualizer(p)
