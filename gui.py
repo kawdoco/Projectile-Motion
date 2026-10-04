@@ -319,28 +319,138 @@ class Slider(Widget):
 
 
 class TextBox(Widget):
-    def __init__(self, rect, initial_text):
+    def __init__(self, rect, initial_text, lo=None, hi=None):
         super().__init__(rect)
         self.text = initial_text
         self.active = False
+        self.cursor = len(initial_text)
+        self.selection_anchor = None
+        self._last_edit_ms = 0
+        self.lo, self.hi = lo, hi
+        self._font = None
+        self._text_scroll_px = 0
+
+    def _replace_selection(self, replacement):
+        if self.selection_anchor is None:
+            start = end = self.cursor
+        else:
+            start, end = sorted((self.cursor, self.selection_anchor))
+        candidate = self.text[:start] + replacement + self.text[end:]
+        if candidate not in ("", "-", ".", "-."):
+            try:
+                float(candidate)
+            except ValueError:
+                return False
+        self.text = candidate
+        self.cursor = start + len(replacement)
+        self.selection_anchor = None
+        return True
+
+    def is_valid(self):
+        try:
+            value = float(self.text)
+        except ValueError:
+            return False
+        return (math.isfinite(value)
+                and (self.lo is None or value >= self.lo)
+                and (self.hi is None or value <= self.hi))
+
+    def _cursor_from_x(self, x):
+        if self._font is None:
+            return len(self.text)
+        text_left = self.rect.x + 8 - self._text_scroll_px
+        relative_x = x - text_left
+        for index in range(len(self.text) + 1):
+            prefix_width = self._font.size(self.text[:index])[0]
+            next_width = (self._font.size(self.text[:index + 1])[0]
+                          if index < len(self.text) else prefix_width)
+            if relative_x < (prefix_width + next_width) / 2:
+                return index
+        return len(self.text)
 
     def handle_event(self, event):
-        if event.type == pygame.MOUSEBUTTONDOWN:
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             self.active = self.rect.collidepoint(event.pos)
+            if self.active:
+                self.cursor = self._cursor_from_x(event.pos[0])
+                self.selection_anchor = None
+                self._last_edit_ms = pygame.time.get_ticks()
         elif event.type == pygame.KEYDOWN and self.active:
             if event.key == pygame.K_RETURN:
                 self.active = False
+                self.selection_anchor = None
+            elif event.key == pygame.K_a and event.mod & pygame.KMOD_CTRL:
+                self.selection_anchor = 0
+                self.cursor = len(self.text)
+                self._last_edit_ms = pygame.time.get_ticks()
+            elif event.key == pygame.K_LEFT:
+                self.cursor = max(0, self.cursor - 1)
+                self.selection_anchor = None
+                self._last_edit_ms = pygame.time.get_ticks()
+            elif event.key == pygame.K_RIGHT:
+                self.cursor = min(len(self.text), self.cursor + 1)
+                self.selection_anchor = None
+                self._last_edit_ms = pygame.time.get_ticks()
+            elif event.key == pygame.K_HOME:
+                self.cursor = 0
+                self.selection_anchor = None
+                self._last_edit_ms = pygame.time.get_ticks()
+            elif event.key == pygame.K_END:
+                self.cursor = len(self.text)
+                self.selection_anchor = None
+                self._last_edit_ms = pygame.time.get_ticks()
             elif event.key == pygame.K_BACKSPACE:
-                self.text = self.text[:-1]
+                if self.selection_anchor is not None:
+                    self._replace_selection("")
+                elif self.cursor > 0:
+                    self.selection_anchor = self.cursor - 1
+                    self._replace_selection("")
+                self._last_edit_ms = pygame.time.get_ticks()
+            elif event.key == pygame.K_DELETE:
+                if self.selection_anchor is not None:
+                    self._replace_selection("")
+                elif self.cursor < len(self.text):
+                    self.selection_anchor = self.cursor + 1
+                    self._replace_selection("")
+                self._last_edit_ms = pygame.time.get_ticks()
             elif event.unicode and (event.unicode.isdigit() or event.unicode in ".-"):
-                self.text += event.unicode
+                self._replace_selection(event.unicode)
+                self._last_edit_ms = pygame.time.get_ticks()
 
     def draw(self, surface, fonts):
-        border = ACCENT if self.active else PANEL_BORDER
+        self._font = fonts["normal"]
+        valid = self.is_valid()
+        border = ACCENT if self.active else (POINT_COLOR if not valid else PANEL_BORDER)
         pygame.draw.rect(surface, BG, self.rect, border_radius=6)
-        pygame.draw.rect(surface, border, self.rect, width=1, border_radius=6)
-        label = fonts["normal"].render(self.text, True, FG)
-        surface.blit(label, label.get_rect(center=self.rect.center))
+        pygame.draw.rect(surface, border, self.rect, width=2 if self.active else 1, border_radius=6)
+        content_left = self.rect.x + 8
+        content_right = self.rect.right - 8
+        visible_width = max(1, content_right - content_left)
+        cursor_width = self._font.size(self.text[:self.cursor])[0]
+        if cursor_width - self._text_scroll_px > visible_width:
+            self._text_scroll_px = cursor_width - visible_width
+        elif cursor_width < self._text_scroll_px:
+            self._text_scroll_px = cursor_width
+        self._text_scroll_px = max(0, min(self._text_scroll_px,
+                                          max(0, self._font.size(self.text)[0] - visible_width)))
+        text_left = content_left - self._text_scroll_px
+        label = self._font.render(self.text, True, FG if valid else POINT_COLOR)
+        text_rect = label.get_rect(midleft=(text_left, self.rect.centery))
+        old_clip = surface.get_clip()
+        surface.set_clip(self.rect.inflate(-8, -4).clip(old_clip))
+        if self.selection_anchor is not None:
+            start, end = sorted((self.cursor, self.selection_anchor))
+            left = text_left + self._font.size(self.text[:start])[0]
+            right = text_left + self._font.size(self.text[:end])[0]
+            selection = pygame.Surface((max(1, right - left), text_rect.height), pygame.SRCALPHA)
+            selection.fill((*ACCENT, 90))
+            surface.blit(selection, (left, text_rect.y))
+        surface.blit(label, text_rect)
+        if self.active and (pygame.time.get_ticks() - self._last_edit_ms) % 1000 < 550:
+            cursor_x = text_left + cursor_width
+            pygame.draw.line(surface, ACCENT, (cursor_x, self.rect.y + 5),
+                             (cursor_x, self.rect.bottom - 5), 2)
+        surface.set_clip(old_clip)
 
     def as_float(self):
         return float(self.text)
@@ -390,7 +500,7 @@ class ParamRow:
         self.key = key
         self.label = label
         self.lo, self.hi, self.step = lo, hi, step
-        self.textbox = TextBox((x + width - 72, y, 72, 26), _fmt(default))
+        self.textbox = TextBox((x + width - 72, y, 72, 26), _fmt(default), lo, hi)
         self.slider = None
         if with_slider:
             self.slider = Slider((x, y + 32, width, 20), lo, hi, default, step,
@@ -548,6 +658,22 @@ class Sidebar:
             if self.rect.collidepoint(mouse_x, mouse_y):
                 max_scroll = max(0, self._content_bottom - self.rect.bottom + 12)
                 self._scroll_offset = max(0, min(max_scroll, self._scroll_offset - event.y * 36))
+            return
+
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_TAB:
+            active_index = next((i for i, row in enumerate(self.rows)
+                                 if row.textbox.active), None)
+            if active_index is None:
+                next_index = 0 if not (event.mod & pygame.KMOD_SHIFT) else len(self.rows) - 1
+            else:
+                direction = -1 if event.mod & pygame.KMOD_SHIFT else 1
+                next_index = (active_index + direction) % len(self.rows)
+            for i, row in enumerate(self.rows):
+                row.textbox.active = i == next_index
+                if row.textbox.active:
+                    row.textbox.cursor = len(row.textbox.text)
+                    row.textbox.selection_anchor = None
+                    row.textbox._last_edit_ms = pygame.time.get_ticks()
             return
 
         self._shift_content(-self._scroll_offset)
