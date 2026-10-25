@@ -1,16 +1,3 @@
-"""
-ui.py
-Input and User Interface for the Projectile Motion Simulation.
-
-Responsibilities:
-- Collect projectile information from the user
-- Validate user input
-- Provide default values
-- Display simulation results
-- Allow the user to run multiple simulations
-"""
-
-
 class UI:
 
     @staticmethod
