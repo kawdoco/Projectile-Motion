@@ -1,6 +1,3 @@
-#visualizer part(my part)
-
-
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -13,56 +10,33 @@ DARK_BG = "#0d1117"
 PANEL_BG = "#161b22"
 TEXT_COLOR = "#c9d1d9"
 GRID_COLOR = "#30363d"
-ACCENT = "#ff8c42"          
-CMAP_NAME = "plasma"        
+ACCENT = "#ff8c42"
+CMAP_NAME = "plasma"
 
 
 class BaseVisualizer(ABC):
-#This is the abstract base class for visualizer. 
 
     @abstractmethod
     def render_static(self, save_path=None, points=400):
-        #This method is used to create a static picture.
         raise NotImplementedError
 
     @abstractmethod
     def render_animation(self, save_path=None, interval=20, frame_step=5):
-        #This method is used to create an animation.
         raise NotImplementedError
 
 
 class TrajectoryVisualizer(BaseVisualizer):
-    #This class creates static and animated projectile graphs.
-
 
     def __init__(self, projectile):
-        # Store the projectile object.
         self.projectile = projectile
-        # Get all the projectile data and convert it to a numpy array.
         data = np.array(projectile.full_trajectory())
 
-
-        # Store the time values.
-        # Double underscore is used to make these attributes private.
         self.__t = data[:, 0]
-
-        # Store the horizontal position values.
         self.__x = data[:, 1]
-
-        # Store the vertical position values.
         self.__y = data[:, 2]
-
-        # Store the horizontal velocity values.
         self.__vx = data[:, 3]
-
-        # Store the vertical velocity values.
         self.__vy = data[:, 4]
-
-        # Calculate the speed using horizontal and vertical velocity.
         self.__speed = np.hypot(self.__vx, self.__vy)
-
-
-   # These properties give read-only access to the private data.
 
     @property
     def t(self):
@@ -87,9 +61,6 @@ class TrajectoryVisualizer(BaseVisualizer):
     @property
     def speed(self):
         return self.__speed
-
-    # These methods are used for common graph setup.
-
 
     def _new_figure(self, with_height_panel=True):
         fig = plt.figure(figsize=(11, 5.5))
@@ -123,11 +94,7 @@ class TrajectoryVisualizer(BaseVisualizer):
                 f"range = {r['range']} m   max height = {r['max_height']} m   "
                 f"flight time = {r['flight_time']} s")
 
-    #           public API 
-
     def render_static(self, save_path=None, points=400):
-        # Draw the complete projectile path as a static graph. 
-
         idx = np.linspace(0, len(self.x) - 1, min(points, len(self.x))).astype(int)
         xs, ys, ts, speeds = self.x[idx], self.y[idx], self.t[idx], self.speed[idx]
 
@@ -149,9 +116,6 @@ class TrajectoryVisualizer(BaseVisualizer):
         return fig
 
     def render_animation(self, save_path=None, interval=20, frame_step=5):
-        # Create an animation of the projectile movement.
-
-        # Create an animation of the projectile movement.
         idx = np.arange(0, len(self.x), frame_step)
         xs, ys, ts, speeds = self.x[idx], self.y[idx], self.t[idx], self.speed[idx]
 
@@ -167,12 +131,16 @@ class TrajectoryVisualizer(BaseVisualizer):
                                 markeredgecolor="white", markeredgewidth=0.8)
         height_line, = ax_height.plot([], [], color=ACCENT, linewidth=2)
 
+        time_text = ax_main.text(0.02, 0.95, "", transform=ax_main.transAxes,
+                                 color=TEXT_COLOR, fontsize=9)
+
         def update(frame):
             trail.set_offsets(np.column_stack([xs[:frame + 1], ys[:frame + 1]]))
             trail.set_array(speeds[:frame + 1])
             marker.set_data([xs[frame]], [ys[frame]])
             height_line.set_data(ts[:frame + 1], ys[:frame + 1])
-            return trail, marker, height_line
+            time_text.set_text(f"t = {ts[frame]:.2f} s")
+            return trail, marker, height_line, time_text
 
         anim = animation.FuncAnimation(
             fig, update, frames=len(xs), interval=interval, blit=True
@@ -184,7 +152,6 @@ class TrajectoryVisualizer(BaseVisualizer):
 
 
 if __name__ == "__main__":
-    # quick manual smoke test using the physics module directly
     from projectile_physics_engine import ProjectilePhysics
 
     p = ProjectilePhysics(launchSpeed=35, launchAngle=50, dragCoefficient=0.015)
