@@ -8,11 +8,21 @@ class UI:
         while True:
 
             if default is not None:
-                user_input = input(
-                    f"{prompt} [{default}]: "
-                ).strip()
+    
+                if min_value is not None and max_value is not None:
+                    message = f"{prompt} ({min_value}-{max_value})"
+                elif min_value is not None:
+                    message = f"{prompt} (minimum: {min_value})"
+                elif max_value is not None:
+                    message = f"{prompt} (maximum: {max_value})"
+                else:
+                    message = prompt
 
-                # Use default if user presses Enter
+                user_input = input(
+                    f"{message} [{default}]: "
+                ).strip() 
+
+                
                 if user_input == "":
                     return default
 
@@ -22,7 +32,7 @@ class UI:
             try:
                 value = float(user_input)
 
-                # Check minimum value
+                
                 if min_value is not None and value < min_value:
                     print(
                         f"Invalid input. "
@@ -30,7 +40,7 @@ class UI:
                     )
                     continue
 
-                # Check maximum value
+                
                 if max_value is not None and value > max_value:
                     print(
                         f"Invalid input. "
@@ -47,12 +57,7 @@ class UI:
 
     @classmethod
     def collect_inputs(cls):
-        """
-        Collect all projectile simulation inputs.
-
-        Returns:
-            dict: Input values required by ProjectilePhysics.
-        """
+        
 
         print("\n" + "=" * 45)
         print("       PROJECTILE MOTION SIMULATION")
@@ -61,14 +66,14 @@ class UI:
         print("\nEnter the following values.")
         print("Press Enter to use the default value.\n")
 
-        # Initial velocity
+        
         launch_speed = cls.get_float(
             "Initial speed (m/s)",
             default=30.0,
             min_value=0.0
         )
 
-        # Launch angle
+        
         launch_angle = cls.get_float(
             "Launch angle (degrees)",
             default=45.0,
@@ -76,21 +81,21 @@ class UI:
             max_value=90.0
         )
 
-        # Initial height
+        
         start_height = cls.get_float(
             "Launch height (m)",
             default=0.0,
             min_value=0.0
         )
 
-        # Gravity
+        
         gravity = cls.get_float(
             "Gravity (m/s²)",
             default=9.81,
             min_value=0.1
         )
 
-        # Air resistance
+        
         drag_coefficient = cls.get_float(
             "Drag coefficient (0 = no air resistance)",
             default=0.0,
@@ -109,9 +114,7 @@ class UI:
 
     @staticmethod
     def display_summary(summary):
-        """
-        Display the results returned by ProjectilePhysics.
-        """
+        
 
         print("\n" + "=" * 45)
         print("             SIMULATION RESULTS")
@@ -152,12 +155,7 @@ class UI:
 
     @staticmethod
     def ask_again():
-        """
-        Ask the user if another simulation should be performed.
-
-        Returns:
-            bool: True if the user wants another simulation.
-        """
+        
 
         while True:
 
