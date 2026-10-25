@@ -1,19 +1,9 @@
+import math
+
 class UI:
 
     @staticmethod
     def get_float(prompt, default=None, min_value=None, max_value=None):
-        """
-        Get a valid floating-point number from the user.
-
-        Parameters:
-            prompt: Message displayed to the user
-            default: Value used when the user presses Enter
-            min_value: Minimum allowed value
-            max_value: Maximum allowed value
-
-        Returns:
-            float: Validated user input
-        """
 
         while True:
 
@@ -131,6 +121,7 @@ class UI:
             f"Initial speed : "
             f"{summary['initial_speed']:.3f} m/s"
         )
+
 
         print(
             f"Launch angle  : "
