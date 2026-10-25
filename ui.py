@@ -32,6 +32,11 @@ class UI:
             try:
                 value = float(user_input)
 
+                if not math.isfinite(value):
+                    print(
+                        "Invalid input. Please enter a valid number."
+                    )
+                    continue
                 
                 if min_value is not None and value < min_value:
                     print(
@@ -41,6 +46,7 @@ class UI:
                     continue
 
                 
+
                 if max_value is not None and value > max_value:
                     print(
                         f"Invalid input. "
