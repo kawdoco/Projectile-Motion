@@ -496,16 +496,21 @@ class SegmentedControl(Widget):
 
 class ParamRow:
 
-    def __init__(self, x, y, width, key, label, default, lo, hi, step, with_slider):
+    def __init__(self, x, y, width, key, label, default, lo, hi, step, with_slider,
+                 unit="", guidance=""):
         self.key = key
         self.label = label
+        self.unit = unit
+        self.guidance = guidance
         self.lo, self.hi, self.step = lo, hi, step
         self.textbox = TextBox((x + width - 72, y, 72, 26), _fmt(default), lo, hi)
         self.slider = None
         if with_slider:
-            self.slider = Slider((x, y + 32, width, 20), lo, hi, default, step,
+            self.slider = Slider((x, y + 62, width, 20), lo, hi, default, step,
                                   on_change=self._sync_from_slider)
-        self.label_pos = (x + 26, y + 4)
+        self.label_pos = (x + 26, y + 1)
+        self.range_pos = (x + 26, y + 27)
+        self.guidance_pos = (x + 26, y + 43)
         self.icon_rect = pygame.Rect(x, y, 20, 20)
 
     def _sync_from_slider(self, value):
@@ -525,12 +530,16 @@ class ParamRow:
         draw_icon(self.key, surface, self.icon_rect, FG_MUTED)
         label = fonts["normal"].render(self.label, True, FG)
         surface.blit(label, self.label_pos)
+        note = f"Valid: {self.lo:g}–{self.hi:g} {self.unit}".strip()
+        surface.blit(fonts["small"].render(note, True, FG_MUTED), self.range_pos)
+        if self.guidance:
+            surface.blit(fonts["small"].render(self.guidance, True, FG_MUTED), self.guidance_pos)
         self.textbox.draw(surface, fonts)
         if self.slider:
             self.slider.draw(surface, fonts)
 
     def height(self):
-        return 60 if self.slider else 30
+        return 88 if self.slider else 58
 
     def value(self):
         return max(self.lo, min(self.hi, self.textbox.as_float()))
@@ -539,14 +548,14 @@ class ParamRow:
 class Sidebar:
 
     MOTION_FIELDS = [
-        ("v0", "Initial Speed (m/s)", 30, 0, 100, 1, True),
-        ("angle_deg", "Launch Angle (deg)", 45, 0, 90, 1, True),
-        ("height", "Launch Height (m)", 0, 0, 100, 1, False),
+        ("v0", "Initial Speed", 30, 0, 100, 1, True, "m/s", "launch velocity"),
+        ("angle_deg", "Launch Angle", 45, 0, 90, 1, True, "deg", "direction"),
+        ("height", "Launch Height", 0, 0, 100, 1, False, "m", "starting elevation"),
     ]
     PHYSICS_FIELDS = [
-        ("gravity", "Gravity (m/s^2)", 9.81, 0.1, 25, 0.01, False),
-        ("mass", "Mass (kg)", 1.0, 0.01, 20, 0.01, False),
-        ("drag_coefficient", "Drag Coefficient", 0.02, 0, 1, 0.001, False),
+        ("gravity", "Gravity", 9.81, 0.1, 25, 0.01, False, "m/s²", "downward acceleration"),
+        ("mass", "Mass", 1.0, 0.01, 20, 0.01, False, "kg", "higher mass reduces drag effect"),
+        ("drag_coefficient", "Drag Coefficient", 0.02, 0, 1, 0.001, False, "", "air resistance; 0 disables drag"),
     ]
 
     PRESETS = {
@@ -627,6 +636,8 @@ class Sidebar:
             row.textbox.rect.y += dy
             row.icon_rect.y += dy
             row.label_pos = (row.label_pos[0], row.label_pos[1] + dy)
+            row.range_pos = (row.range_pos[0], row.range_pos[1] + dy)
+            row.guidance_pos = (row.guidance_pos[0], row.guidance_pos[1] + dy)
             if row.slider:
                 row.slider.rect.y += dy
         for button in self.buttons:
@@ -760,6 +771,12 @@ class PlotPanel:
         self.paused = False
         self.speed_mult = 1.0
         self._glow_cache = None
+        self.zoom = 1.0
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self._panning = False
+        self._last_pointer = None
+        self._hover_pos = None
 
     def start_animation(self, ts, xs, ys, vxs, vys, results):
         self.ts, self.xs, self.ys, self.vxs, self.vys = ts, xs, ys, vxs, vys
@@ -829,9 +846,32 @@ class PlotPanel:
                             h - self.MARGIN_T - self.MARGIN_B)
 
     def _to_px(self, x, y, plot_rect, x_max, y_max):
-        px = plot_rect.x + (x / x_max) * plot_rect.width if x_max else plot_rect.x
-        py = plot_rect.bottom - (y / y_max) * plot_rect.height if y_max else plot_rect.bottom
+        px = plot_rect.x + ((x / x_max - self.pan_x) * self.zoom) * plot_rect.width if x_max else plot_rect.x
+        py = plot_rect.bottom - ((y / y_max - self.pan_y) * self.zoom) * plot_rect.height if y_max else plot_rect.bottom
         return int(px), int(py)
+
+    def handle_event(self, event):
+        plot_rect = self._plot_rect().move(self.rect.topleft)
+        if event.type == pygame.MOUSEMOTION:
+            self._hover_pos = (event.pos[0] - self.rect.x, event.pos[1] - self.rect.y)
+            if self._panning and self._last_pointer:
+                dx = event.pos[0] - self._last_pointer[0]
+                dy = event.pos[1] - self._last_pointer[1]
+                local_plot = self._plot_rect()
+                self.pan_x += dx / max(1, local_plot.width * self.zoom)
+                self.pan_y -= dy / max(1, local_plot.height * self.zoom)
+                self._last_pointer = event.pos
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and plot_rect.collidepoint(event.pos):
+            self._panning = True
+            self._last_pointer = event.pos
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self._panning = False
+            self._last_pointer = None
+        elif event.type == pygame.MOUSEWHEEL:
+            if plot_rect.collidepoint(pygame.mouse.get_pos()):
+                self.zoom = max(1.0, min(8.0, self.zoom * (1.15 if event.y > 0 else 1 / 1.15)))
+                if self.zoom == 1.0:
+                    self.pan_x = self.pan_y = 0.0
 
     def _draw_axes(self, fonts, x_max, y_max):
         plot_rect = self._plot_rect()
@@ -839,16 +879,18 @@ class PlotPanel:
         for i in range(6):
             gy = plot_rect.y + i * plot_rect.height // 5
             pygame.draw.line(self.surface, GRID_COLOR, (plot_rect.x, gy), (plot_rect.right, gy))
-            label = fonts["small"].render(f"{y_max * (5 - i) / 5:.0f}", True, FG_MUTED)
+            y_value = y_max * ((5 - i) / 5 / self.zoom + self.pan_y)
+            label = fonts["small"].render(f"{y_value:.0f}", True, FG_MUTED)
             self.surface.blit(label, (2, gy - 6))
         for i in range(6):
             gx = plot_rect.x + i * plot_rect.width // 5
             pygame.draw.line(self.surface, GRID_COLOR, (gx, plot_rect.y), (gx, plot_rect.bottom))
-            label = fonts["small"].render(f"{x_max * i / 5:.0f}", True, FG_MUTED)
+            x_value = x_max * (i / 5 / self.zoom + self.pan_x)
+            label = fonts["small"].render(f"{x_value:.0f}", True, FG_MUTED)
             self.surface.blit(label, (gx - 8, plot_rect.bottom + 4))
         pygame.draw.rect(self.surface, PANEL_BORDER, plot_rect, width=1)
 
-        x_label = fonts["small"].render("Horizontal Distance (m)", True, FG)
+        x_label = fonts["small"].render("Horizontal distance (m)", True, FG)
         self.surface.blit(x_label, x_label.get_rect(center=(plot_rect.centerx, self.surface.get_height() - 8)))
         y_label = fonts["small"].render("Height (m)", True, FG)
         self.surface.blit(pygame.transform.rotate(y_label, 90), (2, plot_rect.centery - 20))
@@ -971,6 +1013,18 @@ class PlotPanel:
         self._draw_trail(plot_rect, x_max, y_max)
         bx, by = self._draw_ball(plot_rect, x_max, y_max)
 
+        if self._hover_pos and plot_rect.collidepoint(self._hover_pos):
+            nearest = min(range(len(self.xs)), key=lambda i: abs(self._to_px(self.xs[i], self.ys[i], plot_rect, x_max, y_max)[0] - self._hover_pos[0]))
+            hx, hy = self._to_px(self.xs[nearest], self.ys[nearest], plot_rect, x_max, y_max)
+            pygame.draw.line(self.surface, FG_MUTED, (hx, plot_rect.y), (hx, plot_rect.bottom), 1)
+            readout = (f"t {self.ts[nearest]:.2f}s  x {self.xs[nearest]:.2f}m  y {self.ys[nearest]:.2f}m  "
+                       f"vx {self.vxs[nearest]:.2f}m/s  vy {self.vys[nearest]:.2f}m/s")
+            label = fonts["small"].render(readout, True, FG)
+            panel_w = min(plot_rect.width, label.get_width() + 14)
+            panel = pygame.Rect(plot_rect.x, plot_rect.y + 5, panel_w, 24)
+            pygame.draw.rect(self.surface, CARD_BG, panel, border_radius=5)
+            self.surface.blit(label, (panel.x + 7, panel.y + 4), area=pygame.Rect(0, 0, panel_w - 14, label.get_height()))
+
         if not self.finished:
             self._draw_overlay(plot_rect, bx, by, fonts)
 
@@ -1009,24 +1063,23 @@ class PlaybackBar:
     def __init__(self, rect, plot_panel):
         self.rect = pygame.Rect(rect)
         self.plot_panel = plot_panel
-
-        pad = 18
+        self.compact = self.rect.width < 850 or self.rect.height < 100
+        pad = 10 if self.compact else 18
         x = self.rect.x + pad
         width = self.rect.width - 2 * pad
         y = self.rect.y + pad
-
-        btn_w, btn_h = 56, 36
+        btn_w, btn_h = (42, 30) if self.compact else (56, 36)
         self.restart_button = Button((x, y, btn_w, btn_h), on_click=self._on_restart, icon_key="restart")
         self.play_button = Button((x + btn_w + 10, y, btn_w, btn_h), on_click=self._on_toggle_pause,
                                    accent=True, icon_fn=self._play_icon)
 
-        seg_x = x + 2 * (btn_w + 10) + 6
-        seg_w = width - 2 * (btn_w + 10) - 6
+        seg_x = x + (2 * (btn_w + 10) + 6 if not self.compact else 2 * (btn_w + 8) + 6)
+        seg_w = max(120, self.rect.right - pad - seg_x)
         self.speed_control = SegmentedControl((seg_x, y, seg_w, btn_h), self.SPEED_OPTIONS, "1x", self._on_speed)
 
-        y2 = y + btn_h + 26
+        y2 = y + (btn_h + 26 if not self.compact else 50)
         self.timeline = Slider((x, y2, width, 20), 0.0, 1.0, 0.0, 0.001, self._on_seek)
-        self._time_label_pos = (x, y2 - 18)
+        self._time_label_pos = (x, y2 - (15 if self.compact else 18))
 
     def _on_restart(self):
         self.plot_panel.restart()
@@ -1115,7 +1168,7 @@ class ProjectileGUI:
         pygame.init()
         pygame.display.set_caption("Projectile Motion Simulator")
         width, height = _get_window_size()
-        self.screen = pygame.display.set_mode((width, height))
+        self.screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
         self.clock = pygame.time.Clock()
         self.fonts = {
             "normal": pygame.font.SysFont("segoeui", 16),
@@ -1125,28 +1178,65 @@ class ProjectileGUI:
 
         self.projectile = None
         self.running = True
+        self.controls_collapsed = False
         self._bg_overlay = _build_background_overlay(width, height)
 
-        pad = 16
-        gap = 14
-        sidebar_w = 340
-        playback_h = 124
-        summary_h = 84
+        self._layout(width, height)
 
-        top_area_h = height - 2 * pad - gap - summary_h
-        right_x = pad + sidebar_w + gap
-        right_w = width - right_x - pad
-        plot_h = top_area_h - gap - playback_h
+    def _layout(self, width, height):
+        pad, gap = 16, 14
+        narrow = width < 1050
+        summary_h = 70 if narrow else 84
+        playback_h = 84 if narrow else 124
+        if narrow:
+            collapsed = self.controls_collapsed
+            sidebar_y = pad + 36
+            sidebar_h = 0 if collapsed else 220
+            sidebar_rect = pygame.Rect(pad, sidebar_y, width - 2 * pad, sidebar_h)
+            right_x, right_w = pad, width - 2 * pad
+            plot_y = sidebar_y + sidebar_h + gap
+            plot_h = max(130, height - plot_y - gap - playback_h - gap - summary_h - pad)
+            summary_y = height - pad - summary_h
+            playback_y = summary_y - gap - playback_h
+            plot_h = max(110, playback_y - gap - plot_y)
+            self.controls_button = Button(
+                (pad, pad, width - 2 * pad, 30),
+                text="Show Input Controls" if collapsed else "Hide Input Controls",
+                on_click=self._toggle_controls,
+            )
+        else:
+            sidebar_w = 340
+            top_area_h = height - 2 * pad - gap - summary_h
+            right_x = pad + sidebar_w + gap
+            right_w = width - right_x - pad
+            plot_h = max(180, top_area_h - gap - playback_h)
+            plot_y = pad
+            playback_y = pad + plot_h + gap
+            sidebar_rect = pygame.Rect(pad, pad, sidebar_w, top_area_h)
+            summary_y = pad + top_area_h + gap
 
-        self.sidebar = Sidebar(
-            (pad, pad, sidebar_w, top_area_h),
-            on_simulate=self.run_simulation,
-            on_save_image=self.save_image,
-            on_save_gif=self.save_gif,
-        )
-        self.plot_panel = PlotPanel((right_x, pad, right_w, plot_h))
-        self.playback_bar = PlaybackBar((right_x, pad + plot_h + gap, right_w, playback_h), self.plot_panel)
-        self.summary_bar = SummaryBar((pad, pad + top_area_h + gap, width - 2 * pad, summary_h))
+        old_values = None
+        old_status = ""
+        old_plot = getattr(self, "plot_panel", None)
+        if hasattr(self, "sidebar"):
+            old_values = {row.key: row.textbox.text for row in self.sidebar.rows}
+            old_status = self.sidebar._status
+        self.sidebar = Sidebar(sidebar_rect, self.run_simulation, self.save_image, self.save_gif)
+        if old_values:
+            for row in self.sidebar.rows:
+                row.textbox.text = old_values.get(row.key, row.textbox.text)
+            self.sidebar._status = old_status
+        self.plot_panel = PlotPanel((right_x, plot_y, right_w, plot_h))
+        if old_plot is not None:
+            for key in ("ts", "xs", "ys", "vxs", "vys", "results", "frame", "_frame_timer",
+                        "finished", "paused", "speed_mult", "zoom", "pan_x", "pan_y"):
+                setattr(self.plot_panel, key, getattr(old_plot, key))
+        self.playback_bar = PlaybackBar((right_x, playback_y, right_w, playback_h), self.plot_panel)
+        self.summary_bar = SummaryBar((pad, summary_y, width - 2 * pad, summary_h))
+
+    def _toggle_controls(self):
+        self.controls_collapsed = not self.controls_collapsed
+        self._layout(*self.screen.get_size())
 
     def run_simulation(self):
         inputs = self.sidebar.read_inputs()
@@ -1216,11 +1306,19 @@ class ProjectileGUI:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
+                elif event.type == pygame.VIDEORESIZE:
+                    width, height = max(720, event.w), max(640, event.h)
+                    self.screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
+                    self._bg_overlay = _build_background_overlay(width, height)
+                    self._layout(width, height)
                 elif event.type == pygame.KEYDOWN and not self.sidebar.any_field_active():
                     if event.key == pygame.K_SPACE and self.plot_panel.xs is not None:
                         self.plot_panel.toggle_pause()
                     elif event.key == pygame.K_r:
                         self.plot_panel.restart()
+                if self.screen.get_width() < 1050:
+                    self.controls_button.handle_event(event)
+                self.plot_panel.handle_event(event)
                 self.sidebar.handle_event(event)
                 self.playback_bar.handle_event(event)
 
@@ -1237,6 +1335,8 @@ class ProjectileGUI:
             self.screen.fill(BG)
             self.screen.blit(self._bg_overlay, (0, 0))
             self.sidebar.draw(self.screen, self.fonts)
+            if self.screen.get_width() < 1050:
+                self.controls_button.draw(self.screen, self.fonts)
             self.plot_panel.draw(self.screen, self.fonts)
             self.playback_bar.draw(self.screen, self.fonts)
             self.summary_bar.draw(self.screen, self.fonts)
